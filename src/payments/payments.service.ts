@@ -108,6 +108,60 @@ export class PaymentsService {
   }
 
   /**
+   * Reverses a payment: appends a compensating entry, soft-deletes the payment, reopens the bill.
+   *
+   * The original `PAYMENT_RECEIVED` entry is never read, updated or deleted — that is what keeps
+   * the books auditable, and it is why the balance can still be recomputed as a plain SUM.
+   */
+  async reverse(orgId: string, paymentId: string): Promise<PaymentResponseDto> {
+    return this.dataSource.transaction(async (manager: EntityManager) => {
+      // 1. Resolve which bill to lock. Scoped to the org, so another tenant gets a 404 here.
+      const unlocked = await this.tenantScope.findPaymentOrThrow(manager, orgId, paymentId);
+
+      // 2. Lock the bill first — same order as every other money transaction, so no deadlock.
+      const bill = await this.tenantScope.findBillForUpdateOrThrow(manager, orgId, unlocked.billId);
+
+      // 3. Re-select the payment FOR UPDATE and re-check `deleted_at IS NULL` INSIDE the bill lock.
+      //    Without this, two concurrent reversals both pass the check in step 1 and collide on the
+      //    partial unique index as a 500. With it, the loser gets a clean 404: a reversed payment
+      //    is soft-deleted, and soft-deleted rows are invisible to the tenant.
+      const payment = await this.tenantScope.findPaymentForUpdateOrThrow(manager, orgId, paymentId);
+
+      // 4. Compensating entry. Positive, carries the same payment_id as the original credit.
+      await this.ledger.append(manager, {
+        orgId,
+        billId: bill.id,
+        paymentId: payment.id,
+        type: 'PAYMENT_REVERSED',
+        amount: Money.normalize(payment.amount),
+      });
+
+      // 5. Soft-delete. Never a hard delete.
+      await manager.getRepository(Payment).softDelete({ id: payment.id, orgId });
+
+      // 6. Recompute from the ledger — not from a stored balance, and not from payment rows.
+      await this.ledger.recomputeBillStatus(manager, orgId, bill.id);
+
+      const reversed = await this.tenantScope.findPaymentOrThrow(manager, orgId, payment.id, {
+        withDeleted: true,
+      });
+      const refreshed = await this.tenantScope.findBillOrThrow(manager, orgId, bill.id);
+      const balance = await this.ledger.balanceFor(manager, orgId, bill.id);
+
+      this.logger.log(
+        `payment.reversed orgId=${orgId} billId=${bill.id} paymentId=${payment.id} status=${refreshed.status}`,
+      );
+
+      return {
+        payment: PaymentDto.from(reversed),
+        bill: BillResponseDto.from(refreshed, balance),
+        replayed: false,
+        warning: null,
+      };
+    });
+  }
+
+  /**
    * Only a violation of `payments_org_external_ref_uq` means "replay".
    *
    * The ledger's partial unique indexes raise 23505 too, and treating one of those as a replay

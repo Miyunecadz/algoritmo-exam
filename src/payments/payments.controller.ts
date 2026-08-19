@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Param, ParseUUIDPipe, Post, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { OrgId } from '../common/tenant/org-id.decorator';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -24,4 +24,11 @@ export class PaymentsController {
     return result.payload;
   }
 
+  @Delete(':id')
+  reverse(
+    @OrgId() orgId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PaymentResponseDto> {
+    return this.payments.reverse(orgId, id);
+  }
 }
