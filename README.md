@@ -15,7 +15,7 @@ npm run db:up && npm run db:create
 npm install && npm run migration:run
 
 # 3. Tests
-npm run test:e2e     # 42 integration tests against a real Postgres
+npm run test:e2e     # 53 integration tests against a real Postgres
 npm test             # money / validator unit tests
 ```
 
@@ -47,7 +47,7 @@ Errors are always `{ statusCode, code, message }`.
 | `POST` | `/bills/:id/post` | 200 — DRAFT → POSTED, writes the `BILL_POSTED` debit |
 | `POST` | `/bills/:id/void` | 200 — DRAFT → VOID, or POSTED → VOID when the bill has no payments |
 | `GET` | `/bills/:id` | 200 — the bill plus `balance` and `amountPaid` |
-| `POST` | `/payments` | **201** when created, **200** when the `externalRef` was already recorded |
+| `POST` | `/payments` | **201** when created, **200** when the `externalRef` was already recorded — including when that payment has since closed, reversed or voided the bill |
 | `DELETE` | `/payments/:id` | 200 — reverses the payment and reopens the bill |
 | `POST` | `/reconciliation/suggest` | 200 — AI-assisted bank-line match suggestion (read-only) |
 | `GET` | `/health` | 200 — no tenant context required |

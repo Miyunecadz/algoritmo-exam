@@ -18,15 +18,22 @@ rejects every statement in an aborted one, and re-reads `withDeleted`. The index
 unconditional, not partial on `deleted_at IS NULL`: a processor reference names one real-world event
 once, forever, so a replay after a reversal returns the reversed payment instead of re-crediting it.
 **That is the one genuinely under-specified point in the brief** — the opposite reading is defensible
-and would change both the index and the tests. A replay with a different amount still returns 200
-with the original payment plus `warning: "AMOUNT_MISMATCH_ON_REPLAY"`: ignoring it would hide an
-upstream bug, and a 409 would break the contract the processor relies on.
+and would change both the index and the tests. **A known reference outranks the bill's state**: the
+commonest retry of all is the webhook for the payment that closed the bill, so when the bill is no
+longer POSTED the service looks the reference up (inside the bill lock, where no competing insert
+can be in flight) and answers 200 replay rather than 409 — the same holds after a reversal or a
+void. A genuinely new reference on a non-POSTED bill is still a 409. A replay whose payload
+disagrees with the stored payment returns 200 with the original payment plus every disagreement in
+`warnings: ["AMOUNT_MISMATCH_ON_REPLAY", …]`: ignoring it would hide an upstream bug, and a 409
+would break the contract the processor relies on.
 
 **Tenant isolation: one choke point, a schema backstop, and 404.** Every scoped lookup goes through
 `TenantScope`, whose only failure mode is `NotFoundException` — so "404, never 403" is a property of
 one file, and a spec enforces it against future edits. A 403 would confirm the record exists, letting
 an attacker enumerate another tenant's bill ids by status code alone; missing and other-tenant
-resources return byte-identical bodies. Underneath, the composite foreign keys
+resources return byte-identical bodies. A *write* carrying an org id no organization owns answers
+404 as well — the exception filter maps the `_org_id_fkey` violation — because a 500 there would
+restore exactly the signal the 404 rule denies. Underneath, the composite foreign keys
 `payments(org_id, bill_id) → bills(org_id, id)` and the equivalent on `ledger_entries` make a
 cross-tenant row physically unrepresentable, whatever the service layer does.
 
