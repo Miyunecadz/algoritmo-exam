@@ -12,7 +12,7 @@ export class CreatePaymentDto {
 
   /** The payment processor's id. Idempotency is keyed on `(orgId, externalRef)`. */
   @IsString()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   @Length(1, 128)
   externalRef!: string;
 }
