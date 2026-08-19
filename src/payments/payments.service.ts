@@ -7,7 +7,7 @@ import { TenantScope } from '../common/tenant/tenant-scope.service';
 import { BillResponseDto } from '../bills/dto/bill-response.dto';
 import { LedgerService } from '../ledger/ledger.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { PaymentDto, PaymentResponseDto } from './dto/payment-response.dto';
+import { PaymentDto, PaymentResponseDto, ReplayWarning } from './dto/payment-response.dto';
 import { Payment, PAYMENTS_ORG_EXTERNAL_REF_UQ } from './payment.entity';
 
 const UNIQUE_VIOLATION = '23505';
@@ -38,12 +38,24 @@ export class PaymentsService {
    */
   async create(orgId: string, dto: CreatePaymentDto): Promise<IngestResult> {
     try {
-      const payload = await this.dataSource.transaction(async (manager: EntityManager) => {
+      const result = await this.dataSource.transaction(async (manager: EntityManager) => {
         // 1. Lock the bill first — always, in every money transaction (uniform lock order).
         const bill = await this.tenantScope.findBillForUpdateOrThrow(manager, orgId, dto.billId);
 
         // 2. Re-check the status inside the lock.
         if (bill.status !== 'POSTED') {
+          // A reference already on file is a REPLAY, not a state error — even though the bill has
+          // since left POSTED, which is exactly what the payment being replayed did to it. The
+          // commonest retry of all is the webhook for the payment that closed the bill; answering
+          // it with a 409 would break idempotency precisely where the processor needs it.
+          //
+          // Safe to read here: every money transaction takes this same bill lock first, so no
+          // competing insert against this bill can be in flight. A genuinely new reference still
+          // falls through to the insert below, where the unique index — never this lookup —
+          // arbitrates the race.
+          const replay = await this.buildReplayPayload(manager, orgId, dto);
+          if (replay) return { created: false, payload: replay };
+
           throw new ConflictException({
             code: ErrorCode.INVALID_BILL_STATE,
             message: `Payments are only accepted on POSTED bills, this bill is ${bill.status}`,
@@ -78,17 +90,25 @@ export class PaymentsService {
         const balance = await this.ledger.balanceFor(manager, orgId, bill.id);
 
         return {
-          payment: PaymentDto.from(payment),
-          bill: BillResponseDto.from(refreshed, balance),
-          replayed: false,
-          warning: null,
-        } satisfies PaymentResponseDto;
+          created: true,
+          payload: {
+            payment: PaymentDto.from(payment),
+            bill: BillResponseDto.from(refreshed, balance),
+            replayed: false,
+            warnings: [],
+          } satisfies PaymentResponseDto,
+        };
       });
+
+      if (!result.created) {
+        this.logReplay(orgId, dto, result.payload);
+        return result;
+      }
 
       this.logger.log(
         `payment.created orgId=${orgId} billId=${dto.billId} externalRef=${dto.externalRef}`,
       );
-      return { created: true, payload };
+      return result;
     } catch (error) {
       if (!this.isReplayViolation(error)) throw error;
 
@@ -99,14 +119,20 @@ export class PaymentsService {
       // The re-read is guaranteed to find the row: our INSERT blocked on the unique index until the
       // competing transaction resolved, so a 23505 means that transaction committed.
       const payload = await this.resolveReplay(orgId, dto);
-
-      const message = `payment.replayed orgId=${orgId} externalRef=${dto.externalRef} warning=${payload.warning ?? 'none'}`;
-      // A mismatched replay is a real upstream inconsistency, so it is logged louder than a plain
-      // retry — no money moved either way.
-      if (payload.warning) this.logger.warn(message);
-      else this.logger.log(message);
+      this.logReplay(orgId, dto, payload);
       return { created: false, payload };
     }
+  }
+
+  /**
+   * A mismatched replay is a real upstream inconsistency, so it is logged louder than a plain
+   * retry — no money moved either way.
+   */
+  private logReplay(orgId: string, dto: CreatePaymentDto, payload: PaymentResponseDto): void {
+    const warnings = payload.warnings.length > 0 ? payload.warnings.join(',') : 'none';
+    const message = `payment.replayed orgId=${orgId} externalRef=${dto.externalRef} warnings=${warnings}`;
+    if (payload.warnings.length > 0) this.logger.warn(message);
+    else this.logger.log(message);
   }
 
   /**
@@ -158,7 +184,7 @@ export class PaymentsService {
         payment: PaymentDto.from(reversed),
         bill: BillResponseDto.from(refreshed, balance),
         replayed: false,
-        warning: null,
+        warnings: [],
       };
     });
   }
@@ -178,45 +204,62 @@ export class PaymentsService {
   }
 
   /**
-   * Resolves a replay in a brand-new transaction.
+   * Resolves a post-`23505` replay in a brand-new transaction — Postgres rejects every statement in
+   * the aborted one, so the re-read cannot happen inline.
+   */
+  private async resolveReplay(orgId: string, dto: CreatePaymentDto): Promise<PaymentResponseDto> {
+    return this.dataSource.transaction(async (manager: EntityManager) => {
+      const payload = await this.buildReplayPayload(manager, orgId, dto);
+      if (!payload) {
+        // Unreachable: a 23505 on this constraint means the competing transaction committed.
+        throw new Error(
+          `Replay of externalRef ${dto.externalRef} could not be resolved for org ${orgId}`,
+        );
+      }
+      return payload;
+    });
+  }
+
+  /**
+   * The 200 body for a replay, or null when this reference has never been recorded.
+   *
+   * Read-only, and it takes the caller's `EntityManager`, so one implementation serves both replay
+   * paths: the post-`23505` re-read on a fresh transaction, and the in-lock lookup for a bill that
+   * has since left POSTED.
    *
    * `withDeleted: true` is deliberate: a replay that arrives after the payment was reversed must
    * resolve to the reversed payment rather than 404 — and must certainly not create a second
    * credit. The unique index is unconditional for the same reason: a processor reference names one
    * real-world event exactly once, forever.
    */
-  private async resolveReplay(orgId: string, dto: CreatePaymentDto): Promise<PaymentResponseDto> {
-    return this.dataSource.transaction(async (manager: EntityManager) => {
-      const existing = await manager.getRepository(Payment).findOne({
-        where: { orgId, externalRef: dto.externalRef },
-        withDeleted: true,
-      });
-
-      if (!existing) {
-        // Unreachable: a 23505 on this constraint means the competing transaction committed.
-        throw new Error(
-          `Replay of externalRef ${dto.externalRef} could not be resolved for org ${orgId}`,
-        );
-      }
-
-      const bill = await this.tenantScope.findBillOrThrow(manager, orgId, existing.billId);
-      const balance = await this.ledger.balanceFor(manager, orgId, existing.billId);
-
-      // A replay whose payload disagrees with what was stored is an upstream bug worth surfacing.
-      // We still return 200 with the original payment — silently ignoring the mismatch would hide
-      // the bug, and a 409 would break the idempotency contract the processor relies on.
-      const warning = !Money.equals(existing.amount, dto.amount)
-        ? 'AMOUNT_MISMATCH_ON_REPLAY'
-        : existing.billId !== dto.billId
-          ? 'BILL_MISMATCH_ON_REPLAY'
-          : null;
-
-      return {
-        payment: PaymentDto.from(existing),
-        bill: BillResponseDto.from(bill, balance),
-        replayed: true,
-        warning,
-      };
+  private async buildReplayPayload(
+    manager: EntityManager,
+    orgId: string,
+    dto: CreatePaymentDto,
+  ): Promise<PaymentResponseDto | null> {
+    const existing = await manager.getRepository(Payment).findOne({
+      where: { orgId, externalRef: dto.externalRef },
+      withDeleted: true,
     });
+    if (!existing) return null;
+
+    const bill = await this.tenantScope.findBillOrThrow(manager, orgId, existing.billId);
+    const balance = await this.ledger.balanceFor(manager, orgId, existing.billId);
+
+    // A replay whose payload disagrees with what was stored is an upstream bug worth surfacing. We
+    // still return 200 with the original payment — silently ignoring the mismatch would hide the
+    // bug, and a 409 would break the idempotency contract the processor relies on. Both
+    // disagreements are reported independently: a payload naming the wrong bill AND the wrong
+    // amount is the worst case, and it must not be the least informative one.
+    const warnings: string[] = [];
+    if (!Money.equals(existing.amount, dto.amount)) warnings.push(ReplayWarning.AMOUNT_MISMATCH);
+    if (existing.billId !== dto.billId) warnings.push(ReplayWarning.BILL_MISMATCH);
+
+    return {
+      payment: PaymentDto.from(existing),
+      bill: BillResponseDto.from(bill, balance),
+      replayed: true,
+      warnings,
+    };
   }
 }

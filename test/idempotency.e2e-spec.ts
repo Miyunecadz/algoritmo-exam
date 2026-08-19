@@ -32,7 +32,7 @@ describe('Idempotent ingestion', () => {
     expect(first.body.replayed).toBe(false);
     expect(second.body.replayed).toBe(true);
     expect(second.body.payment.id).toBe(first.body.payment.id);
-    expect(second.body.warning).toBeNull();
+    expect(second.body.warnings).toEqual([]);
 
     expect(await countRows(context.dataSource, 'payments')).toBe(1);
     const [credits] = await context.dataSource.query(
@@ -57,7 +57,7 @@ describe('Idempotent ingestion', () => {
       .expect(200);
 
     expect(replay.body.replayed).toBe(true);
-    expect(replay.body.warning).toBe('AMOUNT_MISMATCH_ON_REPLAY');
+    expect(replay.body.warnings).toEqual(['AMOUNT_MISMATCH_ON_REPLAY']);
     // The stored payment wins; the submitted amount is never applied.
     expect(replay.body.payment.amount).toBe('40.00');
     expect(replay.body.payment.id).toBe(first.body.payment.id);
@@ -76,7 +76,74 @@ describe('Idempotent ingestion', () => {
       .post('/payments', { billId: otherBill, amount: '40.00', externalRef: 'REF-4' })
       .expect(200);
 
-    expect(replay.body.warning).toBe('BILL_MISMATCH_ON_REPLAY');
+    expect(replay.body.warnings).toEqual(['BILL_MISMATCH_ON_REPLAY']);
+    expect(replay.body.payment.id).toBe(created.body.payment.id);
+    expect(replay.body.bill.id).toBe(billId);
+    expect(await countRows(context.dataSource, 'payments')).toBe(1);
+  });
+
+  it('replays a payment that already covered the bill, rather than 409-ing on PAID', async () => {
+    const client = asOrg(context.baseUrl, ORG_A);
+    const body = { billId, amount: '100.00', externalRef: 'REF-FULL' };
+
+    const first = await client.post('/payments', body).expect(201);
+    expect(first.body.bill.status).toBe('PAID');
+
+    // The commonest processor retry of all: the webhook for the payment that closed the bill. The
+    // bill is no longer POSTED, but a known reference is a replay, never a state error.
+    const replay = await client.post('/payments', body).expect(200);
+
+    expect(replay.body.replayed).toBe(true);
+    expect(replay.body.payment.id).toBe(first.body.payment.id);
+    expect(replay.body.warnings).toEqual([]);
+    expect(replay.body.bill.status).toBe('PAID');
+    expect(replay.body.bill.balance).toBe('0.00');
+    expect(replay.body.bill.amountPaid).toBe('100.00');
+
+    expect(await countRows(context.dataSource, 'payments')).toBe(1);
+    const [credits] = await context.dataSource.query(
+      `SELECT count(*)::text FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED'`,
+    );
+    expect(credits.count).toBe('1');
+  });
+
+  it('replays a reference recorded before the bill was voided', async () => {
+    const client = asOrg(context.baseUrl, ORG_A);
+    const draft = await client.post('/bills', { amountDue: '50.00' }).expect(201);
+    const otherBill = draft.body.id as string;
+    await client.post(`/bills/${otherBill}/post`).expect(200);
+
+    const created = await client
+      .post('/payments', { billId: otherBill, amount: '10.00', externalRef: 'REF-VOIDED' })
+      .expect(201);
+    await client.delete(`/payments/${created.body.payment.id}`).expect(200);
+    await client.post(`/bills/${otherBill}/void`).expect(200);
+
+    const replay = await client
+      .post('/payments', { billId: otherBill, amount: '10.00', externalRef: 'REF-VOIDED' })
+      .expect(200);
+
+    expect(replay.body.replayed).toBe(true);
+    expect(replay.body.payment.id).toBe(created.body.payment.id);
+    expect(replay.body.bill.status).toBe('VOID');
+    expect(await countRows(context.dataSource, 'payments')).toBe(1);
+  });
+
+  it('reports every disagreement when a replay names both the wrong amount and the wrong bill', async () => {
+    const client = asOrg(context.baseUrl, ORG_A);
+    const otherBill = await createPostedBill(context.baseUrl, ORG_A, '80.00');
+    const created = await client
+      .post('/payments', { billId, amount: '40.00', externalRef: 'REF-BOTH' })
+      .expect(201);
+
+    const replay = await client
+      .post('/payments', { billId: otherBill, amount: '55.00', externalRef: 'REF-BOTH' })
+      .expect(200);
+
+    expect(replay.body.warnings).toEqual([
+      'AMOUNT_MISMATCH_ON_REPLAY',
+      'BILL_MISMATCH_ON_REPLAY',
+    ]);
     expect(replay.body.payment.id).toBe(created.body.payment.id);
     expect(replay.body.bill.id).toBe(billId);
     expect(await countRows(context.dataSource, 'payments')).toBe(1);

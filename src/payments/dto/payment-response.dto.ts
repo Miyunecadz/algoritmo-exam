@@ -23,11 +23,23 @@ export class PaymentDto {
   }
 }
 
+/** Stable codes for a replay whose payload disagrees with what was stored. */
+export const ReplayWarning = {
+  AMOUNT_MISMATCH: 'AMOUNT_MISMATCH_ON_REPLAY',
+  BILL_MISMATCH: 'BILL_MISMATCH_ON_REPLAY',
+} as const;
+
+export type ReplayWarning = (typeof ReplayWarning)[keyof typeof ReplayWarning];
+
 export class PaymentResponseDto {
   payment!: PaymentDto;
   bill!: BillResponseDto;
   /** True when this request was a replay of an `externalRef` already recorded for the org. */
   replayed!: boolean;
-  /** e.g. `AMOUNT_MISMATCH_ON_REPLAY` — advisory only, never changes what was stored. */
-  warning!: string | null;
+  /**
+   * Every disagreement between the replayed payload and the stored payment, e.g.
+   * `["AMOUNT_MISMATCH_ON_REPLAY"]`. Advisory only — never changes what was stored, and empty on
+   * the ordinary paths. A list rather than one code because a payload can be wrong twice over.
+   */
+  warnings!: string[];
 }
