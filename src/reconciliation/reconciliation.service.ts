@@ -63,9 +63,9 @@ export class ReconciliationService {
    * shortlist comes from a regex over the raw line, so a model can never invent or shift it.
    */
   private parseLine(rawLine: string): ParsedLineDto {
-    const amountMatch = /(?:^|[^\d.,])(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)(?!\d)/g;
+    const amountPattern = /(?:^|[^\d.,])(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)(?!\d)/g;
     let amount: string | null = null;
-    for (const match of rawLine.matchAll(amountMatch)) {
+    for (const match of rawLine.matchAll(amountPattern)) {
       const cleaned = match[1].replace(/,/g, '');
       // A bare integer with no decimals is far more likely a reference or a date part than money,
       // unless nothing better turns up — prefer a value that actually has centavos.
@@ -76,7 +76,9 @@ export class ReconciliationService {
       amount ??= cleaned;
     }
 
-    if (amount === null || !Money.isPositiveMoneyString(Money.normalize(amount))) {
+    // Checked before normalising: a line can carry a number too large for `numeric(12,2)`, and
+    // `Money.normalize` would throw a TypeError on it — a 400 is the right answer, not a 500.
+    if (amount === null || !Money.isPositiveMoneyString(amount)) {
       throw new BadRequestException({
         code: ErrorCode.UNPARSEABLE_LINE,
         message: 'Could not parse an amount from the supplied line',
@@ -194,11 +196,10 @@ export class ReconciliationService {
   }
 
   /**
-   * The model's answer is not believed until it is checked. In particular the suggested `billId`
-   * must be one we put in the shortlist — a hallucinated id shown to a cashier as a match is
-   * precisely the harm this feature must not cause.
+   * The model's answer is checked before it is believed. The suggested `billId` must be one we put
+   * in the shortlist: a hallucinated id shown to a cashier as a match is the harm to avoid here.
    */
-  validateSuggestion(raw: string, candidates: MatchCandidateDto[]): SuggestionDto | null {
+  private validateSuggestion(raw: string, candidates: MatchCandidateDto[]): SuggestionDto | null {
     let parsed: unknown;
     try {
       parsed = JSON.parse(this.extractJson(raw));

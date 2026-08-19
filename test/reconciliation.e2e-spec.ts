@@ -4,9 +4,8 @@ import { asOrg, createPostedBill, ORG_A, ORG_B } from './helpers/fixtures';
 import { StubLlmClient } from '../src/llm/stub-llm.client';
 
 /**
- * The AI slice is graded on judgment, so these tests are about the guardrails: the endpoint never
- * writes, never 5xxs because a provider misbehaved, and never shows a cashier a bill the shortlist
- * did not contain.
+ * These specs cover the guardrails around the AI slice: the endpoint never writes, never 5xxs
+ * because a provider misbehaved, and never shows a cashier a bill the shortlist did not contain.
  */
 describe('AI reconciliation suggestions', () => {
   let context: TestContext;
@@ -100,7 +99,7 @@ describe('AI reconciliation suggestions', () => {
     });
   });
 
-  it('never surfaces another tenant\'s bills as candidates', async () => {
+  it("never surfaces another tenant's bills as candidates", async () => {
     const response = await asOrg(context.baseUrl, ORG_B)
       .post('/reconciliation/suggest', { rawLine: bankLine })
       .expect(200);
@@ -112,6 +111,13 @@ describe('AI reconciliation suggestions', () => {
   it('rejects a line with no parseable amount', async () => {
     const response = await asOrg(context.baseUrl, ORG_A)
       .post('/reconciliation/suggest', { rawLine: 'no money on this line' })
+      .expect(400);
+    expect(response.body.code).toBe('UNPARSEABLE_LINE');
+  });
+
+  it('rejects a line whose amount is larger than the money column allows', async () => {
+    const response = await asOrg(context.baseUrl, ORG_A)
+      .post('/reconciliation/suggest', { rawLine: 'GCASH TRANSFER PHP 99999999999.00 REF 8891' })
       .expect(400);
     expect(response.body.code).toBe('UNPARSEABLE_LINE');
   });

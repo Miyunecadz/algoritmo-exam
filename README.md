@@ -15,7 +15,7 @@ npm run db:up && npm run db:create
 npm install && npm run migration:run
 
 # 3. Tests
-npm run test:e2e     # 42 integration tests against a real Postgres
+npm run test:e2e     # 44 integration tests against a real Postgres
 npm test             # money / validator unit tests
 ```
 

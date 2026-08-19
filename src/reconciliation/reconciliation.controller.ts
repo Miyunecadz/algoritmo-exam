@@ -11,10 +11,7 @@ export class ReconciliationController {
   /** Read-only. Nothing here moves money — the cashier does that with POST /payments. */
   @Post('suggest')
   @HttpCode(HttpStatus.OK)
-  suggest(
-    @OrgId() orgId: string,
-    @Body() dto: SuggestMatchDto,
-  ): Promise<SuggestMatchResponseDto> {
+  suggest(@OrgId() orgId: string, @Body() dto: SuggestMatchDto): Promise<SuggestMatchResponseDto> {
     return this.reconciliation.suggest(orgId, dto.rawLine);
   }
 }

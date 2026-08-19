@@ -67,12 +67,9 @@ describe('@IsMoneyString', () => {
     expect(isValid(40.5)).toBe(false);
   });
 
-  it.each(['', 'abc', '40.555', '0', '0.00', '-5.00', '10000000000.00'])(
-    'rejects %s',
-    (input) => {
-      expect(isValid(input)).toBe(false);
-    },
-  );
+  it.each(['', 'abc', '40.555', '0', '0.00', '-5.00', '10000000000.00'])('rejects %s', (input) => {
+    expect(isValid(input)).toBe(false);
+  });
 
   it('rejects null and undefined', () => {
     expect(isValid(null)).toBe(false);

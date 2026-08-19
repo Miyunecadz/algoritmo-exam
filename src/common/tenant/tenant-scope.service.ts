@@ -7,7 +7,7 @@ import { ErrorCode } from '../errors/error-code';
 /**
  * The single choke point for every tenant-scoped lookup.
  *
- * Two properties make this file the whole of the isolation strategy in code:
+ * Two properties carry the isolation strategy:
  *
  *  1. Every lookup is filtered by `org_id`. There is no unscoped `findById` anywhere in the
  *     codebase, so there is no way to forget the clause.

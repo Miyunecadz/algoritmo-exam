@@ -60,7 +60,7 @@ describe('Tenant isolation', () => {
     expect(await countRows(context.dataSource, 'ledger_entries')).toBe(ledgerBefore);
   });
 
-  it('answers identically for another tenant\'s bill and for a bill that does not exist', async () => {
+  it("answers identically for another tenant's bill and for a bill that does not exist", async () => {
     const other = asOrg(context.baseUrl, ORG_B);
     const existing = await other.get(`/bills/${billId}`).expect(404);
     const absent = await other.get('/bills/44444444-4444-4444-4444-444444444444').expect(404);
