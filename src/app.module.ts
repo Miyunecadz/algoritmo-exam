@@ -7,6 +7,7 @@ import { TenantModule } from './common/tenant/tenant.module';
 import { BillsModule } from './bills/bills.module';
 import { LedgerModule } from './ledger/ledger.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ReconciliationModule } from './reconciliation/reconciliation.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { PaymentsModule } from './payments/payments.module';
     LedgerModule,
     BillsModule,
     PaymentsModule,
+    ReconciliationModule,
   ],
   controllers: [HealthController],
 })
