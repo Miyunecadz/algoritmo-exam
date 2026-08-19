@@ -67,6 +67,10 @@ export class ReconciliationService {
     let amount: string | null = null;
     for (const match of rawLine.matchAll(amountMatch)) {
       const cleaned = match[1].replace(/,/g, '');
+      // A token too large for `numeric(12,2)` is a reference number, an account number or an RRN —
+      // never an amount on a utility bill. Skipping it here is what lets a real amount later in the
+      // line still win.
+      if (!Money.isPositiveMoneyString(cleaned)) continue;
       // A bare integer with no decimals is far more likely a reference or a date part than money,
       // unless nothing better turns up — prefer a value that actually has centavos.
       if (cleaned.includes('.')) {
@@ -76,7 +80,10 @@ export class ReconciliationService {
       amount ??= cleaned;
     }
 
-    if (amount === null || !Money.isPositiveMoneyString(Money.normalize(amount))) {
+    // `isPositiveMoneyString` and never `normalize` here: `normalize` THROWS on a non-money string,
+    // and a bank line is full of them — a 14-digit RRN matches the amount regex above and would
+    // turn an unparseable line into a 500 instead of the 400 this endpoint owes the cashier.
+    if (amount === null || !Money.isPositiveMoneyString(amount)) {
       throw new BadRequestException({
         code: ErrorCode.UNPARSEABLE_LINE,
         message: 'Could not parse an amount from the supplied line',
@@ -117,8 +124,8 @@ export class ReconciliationService {
           AND b.deleted_at IS NULL
           AND ABS(COALESCE(l.balance, 0) - $2::numeric) <= $3::numeric
         ORDER BY ABS(COALESCE(l.balance, 0) - $2::numeric) ASC, b.created_at ASC
-        LIMIT ${CANDIDATE_LIMIT}`,
-      [orgId, amount, CANDIDATE_THRESHOLD],
+        LIMIT $4`,
+      [orgId, amount, CANDIDATE_THRESHOLD, CANDIDATE_LIMIT],
     );
 
     return rows.map((row) => ({

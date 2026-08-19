@@ -59,6 +59,37 @@ describe('Concurrency', () => {
     }
   });
 
+  it('replays rather than 409s when two simultaneous ingests each cover the bill', async () => {
+    const client = asOrg(context.baseUrl, ORG_A);
+
+    // The partial-payment race above leaves the bill POSTED, so it cannot see this failure mode:
+    // here the winner flips the bill to PAID while the loser is still queued on the row lock, and
+    // the loser must still be answered as a replay.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const billId = await createPostedBill(context.baseUrl, ORG_A, '100.00');
+      const externalRef = `RACE-FULL-${attempt}`;
+      const body = { billId, amount: '100.00', externalRef };
+
+      const [first, second] = await Promise.all([
+        client.post('/payments', body),
+        client.post('/payments', body),
+      ]);
+
+      expect([first.status, second.status].sort()).toEqual([200, 201]);
+      expect(first.body.payment.id).toBe(second.body.payment.id);
+
+      const [payments] = await context.dataSource.query(
+        `SELECT count(*)::text FROM payments WHERE external_ref = $1`,
+        [externalRef],
+      );
+      expect(payments.count).toBe('1');
+
+      const bill = await client.get(`/bills/${billId}`).expect(200);
+      expect(bill.body.balance).toBe('0.00');
+      expect(bill.body.status).toBe('PAID');
+    }
+  });
+
   it('applies two simultaneous different payments without losing a status update', async () => {
     const client = asOrg(context.baseUrl, ORG_A);
 
