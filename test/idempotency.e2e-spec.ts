@@ -65,6 +65,23 @@ describe('Idempotent ingestion', () => {
     expect(await countRows(context.dataSource, 'payments')).toBe(1);
   });
 
+  it('flags a replay that names a different bill', async () => {
+    const client = asOrg(context.baseUrl, ORG_A);
+    const otherBill = await createPostedBill(context.baseUrl, ORG_A, '80.00');
+    const created = await client
+      .post('/payments', { billId, amount: '40.00', externalRef: 'REF-4' })
+      .expect(201);
+
+    const replay = await client
+      .post('/payments', { billId: otherBill, amount: '40.00', externalRef: 'REF-4' })
+      .expect(200);
+
+    expect(replay.body.warning).toBe('BILL_MISMATCH_ON_REPLAY');
+    expect(replay.body.payment.id).toBe(created.body.payment.id);
+    expect(replay.body.bill.id).toBe(billId);
+    expect(await countRows(context.dataSource, 'payments')).toBe(1);
+  });
+
   it('does not re-credit a reference that was already reversed', async () => {
     const client = asOrg(context.baseUrl, ORG_A);
     const created = await client

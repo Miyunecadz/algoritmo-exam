@@ -200,12 +200,14 @@ export class PaymentsService {
       const bill = await this.tenantScope.findBillOrThrow(manager, orgId, existing.billId);
       const balance = await this.ledger.balanceFor(manager, orgId, existing.billId);
 
-      // A replay whose amount differs from what was stored is an upstream bug worth surfacing.
+      // A replay whose payload disagrees with what was stored is an upstream bug worth surfacing.
       // We still return 200 with the original payment — silently ignoring the mismatch would hide
       // the bug, and a 409 would break the idempotency contract the processor relies on.
-      const warning = Money.equals(existing.amount, dto.amount)
-        ? null
-        : 'AMOUNT_MISMATCH_ON_REPLAY';
+      const warning = !Money.equals(existing.amount, dto.amount)
+        ? 'AMOUNT_MISMATCH_ON_REPLAY'
+        : existing.billId !== dto.billId
+          ? 'BILL_MISMATCH_ON_REPLAY'
+          : null;
 
       return {
         payment: PaymentDto.from(existing),
