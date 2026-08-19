@@ -10,7 +10,7 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
     "db:up": "docker run --name billing-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:15",
-    "db:create": "docker exec billing-pg psql -U postgres -c 'CREATE DATABASE billing' && docker exec billing-pg psql -U postgres -c 'CREATE DATABASE billing_test'",
+    "db:create": "docker exec billing-pg sh -c 'until pg_isready -U postgres -q; do sleep 1; done' && docker exec billing-pg psql -U postgres -c 'CREATE DATABASE billing' && docker exec billing-pg psql -U postgres -c 'CREATE DATABASE billing_test'",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
     "test": "jest",
