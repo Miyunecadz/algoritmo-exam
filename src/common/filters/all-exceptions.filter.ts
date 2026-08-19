@@ -10,6 +10,9 @@ import { Response } from 'express';
 import { QueryFailedError } from 'typeorm';
 import { ErrorCode } from '../errors/error-code';
 
+/** Postgres `foreign_key_violation`. */
+const FOREIGN_KEY_VIOLATION = '23503';
+
 interface ErrorBody {
   statusCode: number;
   code: string;
@@ -73,6 +76,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
           message: 'Database is unavailable, please retry',
         };
       }
+
+      // A write carrying a well-formed org id that no organization owns. Reads already answer 404
+      // for that case — `TenantMiddleware` deliberately does not check the org exists, because a
+      // missing org and another tenant's org must be indistinguishable. Letting this surface as a
+      // 500 would hand back exactly the signal that equivalence exists to deny.
+      //
+      // Narrowed to the `org_id` foreign keys by constraint name, the same discrimination
+      // `PaymentsService` applies to `23505`: any OTHER foreign-key violation is an invariant
+      // breach and must stay a loud 500.
+      if (driverCode === FOREIGN_KEY_VIOLATION && this.isOrgForeignKey(exception)) {
+        return {
+          statusCode: HttpStatus.NOT_FOUND,
+          code: ErrorCode.NOT_FOUND,
+          message: 'Organization not found',
+        };
+      }
     }
 
     return {
@@ -80,6 +99,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code: ErrorCode.INTERNAL_ERROR,
       message: 'Internal server error',
     };
+  }
+
+  /** True for the `<table>_org_id_fkey` constraints — a row pointing at a non-existent organization. */
+  private isOrgForeignKey(exception: unknown): boolean {
+    const driverError = (exception as { driverError?: unknown }).driverError;
+    const details = (driverError ?? exception) as { constraint?: string };
+    return details.constraint?.endsWith('_org_id_fkey') ?? false;
   }
 
   private defaultCodeForStatus(status: number): string {

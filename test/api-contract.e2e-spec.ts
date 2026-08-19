@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { closeTestApp, createTestApp, TestContext } from './helpers/app';
 import { countRows, resetDatabase } from './helpers/db';
-import { asOrg, createPostedBill, MONEY_STRING, ORG_A } from './helpers/fixtures';
+import { asOrg, createPostedBill, MONEY_STRING, ORG_A, ORG_UNKNOWN } from './helpers/fixtures';
 
 /** State-machine, validation and tenant-context cases that guard the HTTP contract. */
 describe('API contract', () => {
@@ -35,6 +35,17 @@ describe('API contract', () => {
 
     it('serves the health probe without a tenant context', async () => {
       await request(context.baseUrl).get('/health').expect(200, { status: 'ok' });
+    });
+
+    it('answers 404, not 500, when a write carries an unknown org id', async () => {
+      // Reads for an unknown org already 404 (see tenant-isolation spec). A write must not answer
+      // differently — that difference is exactly the enumeration signal the 404 rule exists to deny.
+      const response = await asOrg(context.baseUrl, ORG_UNKNOWN)
+        .post('/bills', { amountDue: '10.00' })
+        .expect(404);
+
+      expect(response.body.code).toBe('NOT_FOUND');
+      expect(await countRows(context.dataSource, 'bills')).toBe(0);
     });
   });
 
