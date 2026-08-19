@@ -6,6 +6,7 @@ import { TenantMiddleware } from './common/tenant/tenant.middleware';
 import { TenantModule } from './common/tenant/tenant.module';
 import { BillsModule } from './bills/bills.module';
 import { LedgerModule } from './ledger/ledger.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { LedgerModule } from './ledger/ledger.module';
     TenantModule,
     LedgerModule,
     BillsModule,
+    PaymentsModule,
   ],
   controllers: [HealthController],
 })
