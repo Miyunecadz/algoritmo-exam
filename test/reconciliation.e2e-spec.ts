@@ -1,6 +1,6 @@
 import { closeTestApp, createTestApp, TestContext } from './helpers/app';
 import { countRows, resetDatabase } from './helpers/db';
-import { asOrg, createPostedBill, ORG_A, ORG_B } from './helpers/fixtures';
+import { asOrg, createPostedBill, MONEY_STRING, ORG_A, ORG_B } from './helpers/fixtures';
 import { StubLlmClient } from '../src/llm/stub-llm.client';
 
 /**
@@ -114,5 +114,45 @@ describe('AI reconciliation suggestions', () => {
       .post('/reconciliation/suggest', { rawLine: 'no money on this line' })
       .expect(400);
     expect(response.body.code).toBe('UNPARSEABLE_LINE');
+  });
+
+  it('answers 400 when the only number on the line is too large to be an amount', async () => {
+    // Real statement lines carry 12-16 digit RRNs. Parsing one as money used to throw a TypeError
+    // out of the request and surface as a 500.
+    const response = await asOrg(context.baseUrl, ORG_A)
+      .post('/reconciliation/suggest', { rawLine: 'GCASH TXN 12345678901234 PHP' })
+      .expect(400);
+    expect(response.body.code).toBe('UNPARSEABLE_LINE');
+  });
+
+  it.each([
+    ['an amount beyond numeric(12,2)', 'TRANSFER PHP 99999999999.00 REF 12'],
+    ['a grouped amount beyond numeric(12,2)', 'DEPOSIT 1,234,567,890,123.45 ref A1'],
+    ['a 16-digit card-style reference', 'PAYMAYA 4111111111111111 SETTLED'],
+  ])('never 500s and never parses an out-of-range amount for %s', async (_label, rawLine) => {
+    const response = await asOrg(context.baseUrl, ORG_A).post('/reconciliation/suggest', {
+      rawLine,
+    });
+
+    // Either the line yields no usable amount (400) or it yields one the ledger could hold (200) —
+    // an oversized token is never carried into the response, and never becomes a 500.
+    expect([200, 400]).toContain(response.status);
+    if (response.status === 200) {
+      expect(response.body.parsed.amount).toMatch(MONEY_STRING);
+      // Whole part measured as a string — `numeric(12,2)` holds 10 digits, and no test may put
+      // money through `Number`.
+      expect(response.body.parsed.amount.split('.')[0].length).toBeLessThanOrEqual(10);
+    } else {
+      expect(response.body.code).toBe('UNPARSEABLE_LINE');
+    }
+  });
+
+  it('ignores a long reference number and matches on the real amount', async () => {
+    const response = await asOrg(context.baseUrl, ORG_A)
+      .post('/reconciliation/suggest', { rawLine: 'GCASH RRN 12345678901234 PHP 60.00' })
+      .expect(200);
+
+    expect(response.body.parsed.amount).toBe('60.00');
+    expect(response.body.candidates[0]).toMatchObject({ billId, balance: '60.00' });
   });
 });
