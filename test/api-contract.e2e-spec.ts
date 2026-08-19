@@ -58,7 +58,9 @@ describe('API contract', () => {
       ['empty', ''],
       ['not a number', 'abc'],
     ])('rejects %s', async (_label, amountDue) => {
-      const response = await asOrg(context.baseUrl, ORG_A).post('/bills', { amountDue }).expect(400);
+      const response = await asOrg(context.baseUrl, ORG_A)
+        .post('/bills', { amountDue })
+        .expect(400);
       expect(response.body.code).toBe('VALIDATION_FAILED');
       expect(await countRows(context.dataSource, 'bills')).toBe(0);
     });
@@ -85,7 +87,9 @@ describe('API contract', () => {
   describe('bill state machine', () => {
     it('rejects a second post with 409 and keeps one ledger entry', async () => {
       const billId = await createPostedBill(context.baseUrl, ORG_A, '100.00');
-      const response = await asOrg(context.baseUrl, ORG_A).post(`/bills/${billId}/post`).expect(409);
+      const response = await asOrg(context.baseUrl, ORG_A)
+        .post(`/bills/${billId}/post`)
+        .expect(409);
       expect(response.body.code).toBe('INVALID_BILL_STATE');
       expect(await countRows(context.dataSource, 'ledger_entries')).toBe(1);
     });
@@ -108,9 +112,7 @@ describe('API contract', () => {
       const billId = await createPostedBill(context.baseUrl, ORG_A, '100.00');
       await client.post('/payments', { billId, amount: '100.00', externalRef: 'P-1' }).expect(201);
 
-      await client
-        .post('/payments', { billId, amount: '10.00', externalRef: 'P-2' })
-        .expect(409);
+      await client.post('/payments', { billId, amount: '10.00', externalRef: 'P-2' }).expect(409);
     });
 
     it('voids a DRAFT bill and then rejects payments on it', async () => {

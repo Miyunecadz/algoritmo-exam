@@ -9,10 +9,12 @@ export async function resetDatabase(dataSource: DataSource): Promise<void> {
   await dataSource.query(
     'TRUNCATE ledger_entries, payments, bills, organizations RESTART IDENTITY CASCADE',
   );
-  await dataSource.query(
-    'INSERT INTO organizations (id, name) VALUES ($1, $2), ($3, $4)',
-    [SEED_ORG_A, 'Acme Water District', SEED_ORG_B, 'Northside Power Co-op'],
-  );
+  await dataSource.query('INSERT INTO organizations (id, name) VALUES ($1, $2), ($3, $4)', [
+    SEED_ORG_A,
+    'Acme Water District',
+    SEED_ORG_B,
+    'Northside Power Co-op',
+  ]);
 }
 
 export async function countRows(dataSource: DataSource, table: string): Promise<number> {

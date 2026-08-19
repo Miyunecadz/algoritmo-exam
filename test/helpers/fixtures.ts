@@ -8,7 +8,10 @@ export const ORG_UNKNOWN = '33333333-3333-3333-3333-333333333333';
 
 export const asOrg = (baseUrl: string, orgId: string) => ({
   post: (path: string, body?: object) =>
-    request(baseUrl).post(path).set('X-Org-Id', orgId).send(body ?? {}),
+    request(baseUrl)
+      .post(path)
+      .set('X-Org-Id', orgId)
+      .send(body ?? {}),
   get: (path: string) => request(baseUrl).get(path).set('X-Org-Id', orgId),
   delete: (path: string) => request(baseUrl).delete(path).set('X-Org-Id', orgId),
 });

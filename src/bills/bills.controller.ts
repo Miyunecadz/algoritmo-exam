@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import { OrgId } from '../common/tenant/org-id.decorator';
 import { BillsService } from './bills.service';
 import { BillResponseDto } from './dto/bill-response.dto';
@@ -16,19 +25,13 @@ export class BillsController {
 
   @Post(':id/post')
   @HttpCode(HttpStatus.OK)
-  post(
-    @OrgId() orgId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<BillResponseDto> {
+  post(@OrgId() orgId: string, @Param('id', ParseUUIDPipe) id: string): Promise<BillResponseDto> {
     return this.bills.post(orgId, id);
   }
 
   @Post(':id/void')
   @HttpCode(HttpStatus.OK)
-  void(
-    @OrgId() orgId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<BillResponseDto> {
+  void(@OrgId() orgId: string, @Param('id', ParseUUIDPipe) id: string): Promise<BillResponseDto> {
     return this.bills.void(orgId, id);
   }
 

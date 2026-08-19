@@ -4,9 +4,8 @@ import { asOrg, createPostedBill, MONEY_STRING, ORG_A, ORG_B } from './helpers/f
 import { StubLlmClient } from '../src/llm/stub-llm.client';
 
 /**
- * The AI slice is graded on judgment, so these tests are about the guardrails: the endpoint never
- * writes, never 5xxs because a provider misbehaved, and never shows a cashier a bill the shortlist
- * did not contain.
+ * These specs cover the guardrails around the AI slice: the endpoint never writes, never 5xxs
+ * because a provider misbehaved, and never shows a cashier a bill the shortlist did not contain.
  */
 describe('AI reconciliation suggestions', () => {
   let context: TestContext;
@@ -100,7 +99,7 @@ describe('AI reconciliation suggestions', () => {
     });
   });
 
-  it('never surfaces another tenant\'s bills as candidates', async () => {
+  it("never surfaces another tenant's bills as candidates", async () => {
     const response = await asOrg(context.baseUrl, ORG_B)
       .post('/reconciliation/suggest', { rawLine: bankLine })
       .expect(200);

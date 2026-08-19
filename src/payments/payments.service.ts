@@ -65,13 +65,9 @@ export class PaymentsService {
         const amount = Money.normalize(dto.amount);
 
         // 3. Insert the payment. May raise 23505 on `payments_org_external_ref_uq`.
-        const payment = await manager.getRepository(Payment).save(
-          manager.getRepository(Payment).create({
-            orgId,
-            billId: bill.id,
-            amount,
-            externalRef: dto.externalRef,
-          }),
+        const payments = manager.getRepository(Payment);
+        const payment = await payments.save(
+          payments.create({ orgId, billId: bill.id, amount, externalRef: dto.externalRef }),
         );
 
         // 4. Credit the ledger. Negative by convention, enforced by a CHECK constraint.

@@ -63,9 +63,9 @@ export class ReconciliationService {
    * shortlist comes from a regex over the raw line, so a model can never invent or shift it.
    */
   private parseLine(rawLine: string): ParsedLineDto {
-    const amountMatch = /(?:^|[^\d.,])(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)(?!\d)/g;
+    const amountPattern = /(?:^|[^\d.,])(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)(?!\d)/g;
     let amount: string | null = null;
-    for (const match of rawLine.matchAll(amountMatch)) {
+    for (const match of rawLine.matchAll(amountPattern)) {
       const cleaned = match[1].replace(/,/g, '');
       // A token too large for `numeric(12,2)` is a reference number, an account number or an RRN —
       // never an amount on a utility bill. Skipping it here is what lets a real amount later in the
@@ -201,11 +201,10 @@ export class ReconciliationService {
   }
 
   /**
-   * The model's answer is not believed until it is checked. In particular the suggested `billId`
-   * must be one we put in the shortlist — a hallucinated id shown to a cashier as a match is
-   * precisely the harm this feature must not cause.
+   * The model's answer is checked before it is believed. The suggested `billId` must be one we put
+   * in the shortlist: a hallucinated id shown to a cashier as a match is the harm to avoid here.
    */
-  validateSuggestion(raw: string, candidates: MatchCandidateDto[]): SuggestionDto | null {
+  private validateSuggestion(raw: string, candidates: MatchCandidateDto[]): SuggestionDto | null {
     let parsed: unknown;
     try {
       parsed = JSON.parse(this.extractJson(raw));

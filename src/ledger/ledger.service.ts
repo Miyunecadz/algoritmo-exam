@@ -28,14 +28,16 @@ export interface AppendLedgerEntryInput {
 export class LedgerService {
   /** Appends one entry. Always called inside the caller's transaction. */
   async append(manager: EntityManager, input: AppendLedgerEntryInput): Promise<LedgerEntry> {
-    const entry = manager.getRepository(LedgerEntry).create({
-      orgId: input.orgId,
-      billId: input.billId,
-      paymentId: input.paymentId ?? null,
-      type: input.type,
-      amount: input.amount,
-    });
-    return manager.getRepository(LedgerEntry).save(entry);
+    const entries = manager.getRepository(LedgerEntry);
+    return entries.save(
+      entries.create({
+        orgId: input.orgId,
+        billId: input.billId,
+        paymentId: input.paymentId ?? null,
+        type: input.type,
+        amount: input.amount,
+      }),
+    );
   }
 
   /**
@@ -44,8 +46,8 @@ export class LedgerService {
    * Note what this query does NOT do: it never joins to `payments` and never filters on
    * `payments.deleted_at`. Ledger entries are the truth; payments are merely their origin. A
    * reversal is represented by a compensating `PAYMENT_REVERSED` row, so filtering out
-   * soft-deleted payments would remove the original credit as well and double-count the reversal —
-   * silently breaking reconciliation. This is the single most important line in the file.
+   * soft-deleted payments would drop the original credit while keeping the reversal — silently
+   * breaking reconciliation.
    *
    * The `::text` cast makes Postgres, not the client, responsible for the two-decimal formatting.
    */
@@ -72,11 +74,7 @@ export class LedgerService {
    *
    * Called inside the money transaction, after the bill row is locked.
    */
-  async recomputeBillStatus(
-    manager: EntityManager,
-    orgId: string,
-    billId: string,
-  ): Promise<void> {
+  async recomputeBillStatus(manager: EntityManager, orgId: string, billId: string): Promise<void> {
     await manager.query(
       `UPDATE bills
           SET status = CASE

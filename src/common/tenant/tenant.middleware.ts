@@ -2,8 +2,7 @@ import { BadRequestException, Injectable, NestMiddleware } from '@nestjs/common'
 import { NextFunction, Request, Response } from 'express';
 import { ErrorCode } from '../errors/error-code';
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const ORG_ID_HEADER = 'x-org-id';
 
