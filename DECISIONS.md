@@ -52,7 +52,10 @@ caller's org, and the model only ranks what we already computed. Its answer is d
 3-second abort plus a catch-all degrades any provider failure to the deterministic shortlist with
 `llmAvailable: false`, never a 5xx. The module has no write path, and a test asserts payment and
 ledger counts are unchanged across every suggestion; the human records the payment. `StubLlmClient`
-is the default binding, so the repo and its tests run with no key and no network.
+is the default binding, so the repo and its tests run with no key and no network. The prompt carries
+the pasted line plus bill ids and balances for **one** organization and no credentials; in a real
+deployment, sending that to a third party is a data-processing question needing a customer
+agreement.
 
 **One thing I would do differently with more time.** Enforce isolation in Postgres with Row-Level
 Security and `SET LOCAL app.current_org` per transaction, so a forgotten `WHERE org_id` stops being

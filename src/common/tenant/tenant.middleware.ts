@@ -35,13 +35,13 @@ export class TenantMiddleware implements NestMiddleware {
     if (value === undefined || value.trim() === '') {
       throw new BadRequestException({
         code: ErrorCode.MISSING_ORG_CONTEXT,
-        message: `${ORG_ID_HEADER} header is required`,
+        message: 'X-Org-Id header is required',
       });
     }
     if (!UUID_PATTERN.test(value.trim())) {
       throw new BadRequestException({
         code: ErrorCode.INVALID_ORG_CONTEXT,
-        message: `${ORG_ID_HEADER} header must be a UUID`,
+        message: 'X-Org-Id header must be a valid UUID',
       });
     }
 

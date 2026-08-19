@@ -100,9 +100,11 @@ export class PaymentsService {
       // competing transaction resolved, so a 23505 means that transaction committed.
       const payload = await this.resolveReplay(orgId, dto);
 
-      this.logger.log(
-        `payment.replayed orgId=${orgId} externalRef=${dto.externalRef} warning=${payload.warning ?? 'none'}`,
-      );
+      const message = `payment.replayed orgId=${orgId} externalRef=${dto.externalRef} warning=${payload.warning ?? 'none'}`;
+      // A mismatched replay is a real upstream inconsistency, so it is logged louder than a plain
+      // retry — no money moved either way.
+      if (payload.warning) this.logger.warn(message);
+      else this.logger.log(message);
       return { created: false, payload };
     }
   }
